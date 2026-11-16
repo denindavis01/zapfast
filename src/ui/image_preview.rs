@@ -236,19 +236,22 @@ fn header(
     let palette = app.palette;
     // The chat's name is the useful title once the viewer browses an album;
     // the file name is all there is for a picture opened on its own.
-    let title = app
-        .chat(chat)
-        .map(|known| app.chat_title(known))
-        .unwrap_or_else(|| {
-            preview
-                .path()
-                .and_then(Path::file_name)
-                .and_then(|name| name.to_str())
-                .map_or_else(
-                    || crate::i18n::gettext(app.locale, "Image").into_owned(),
-                    str::to_owned,
-                )
-        });
+    let title = if !chat.is_empty() {
+        if let Some(known) = app.chat(chat) {
+            app.chat_title(known)
+        } else {
+            app.display_name(chat)
+        }
+    } else {
+        preview
+            .path()
+            .and_then(Path::file_name)
+            .and_then(|name| name.to_str())
+            .map_or_else(
+                || crate::i18n::gettext(app.locale, "Image").into_owned(),
+                str::to_owned,
+            )
+    };
     let message = preview.message().to_owned();
     // The file already on the computer, when the item has one: the header
     // offers Save as for it, as the message menu does, instead of fetching it

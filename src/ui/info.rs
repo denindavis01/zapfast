@@ -326,10 +326,10 @@ fn overview(app: &mut App, ui: &mut egui::Ui, id: &str, overlay: bool) {
 
 /// Opens a profile picture in the image viewer. It belongs to no message, so
 /// the viewer has no album of a chat to browse from it.
-fn view_photo(picture: &std::path::Path) -> Action {
+fn view_photo(id: &str, picture: &std::path::Path) -> Action {
     Action::PreviewImage {
         path: picture.to_path_buf(),
-        chat: String::new(),
+        chat: id.to_owned(),
         message: String::new(),
         card: None,
     }
@@ -367,7 +367,9 @@ fn identity(app: &mut App, ui: &mut egui::Ui, shown: &Shown, overlay: bool) {
                 .on_hover_text(label.as_ref())
                 .clicked()
             {
-                app.actions.push(view_photo(picture));
+                let full = app.avatar_full(id);
+                let view_target = full.as_deref().unwrap_or(picture);
+                app.actions.push(view_photo(id, view_target));
             }
         } else {
             widgets::avatar(ui, &palette, name, id, photo, None);
@@ -934,9 +936,30 @@ fn members(app: &mut App, ui: &mut egui::Ui, shown: &Shown, window: f32, photo: 
     let Some((_, members)) = app.info_members.take() else {
         return;
     };
+    let query = app.info_member_search.trim();
+    let needle = crate::util::search_key(query);
+    let filtered_indices: Vec<usize> = if needle.is_empty() {
+        (0..members.len()).collect()
+    } else {
+        members
+            .iter()
+            .enumerate()
+            .filter(|(_, (member, name))| {
+                crate::util::search_key(name).contains(&needle)
+                    || crate::util::search_key(member).contains(&needle)
+                    || crate::model::phone_of(member).is_some_and(|p| p.contains(&needle))
+            })
+            .map(|(i, _)| i)
+            .collect()
+    };
+    let count_label = if needle.is_empty() {
+        format!("Members ({})", members.len())
+    } else {
+        format!("Members ({}/{})", filtered_indices.len(), members.len())
+    };
     theme::text(
         ui,
-        format!("Members ({})", members.len()),
+        count_label,
         theme::medium(12.5),
         palette.secondary,
     );
@@ -955,6 +978,17 @@ fn members(app: &mut App, ui: &mut egui::Ui, shown: &Shown, window: f32, photo: 
         invite_link(app, ui, id, shown.can_manage);
         ui.add_space(4.0);
     }
+    let hint = crate::i18n::gettext(app.locale, "Search members");
+    let search_width = ui.available_width();
+    widgets::search_field(
+        ui,
+        &palette,
+        ui.id().with("info-member-search"),
+        &mut app.info_member_search,
+        &hint,
+        search_width,
+    );
+    ui.add_space(4.0);
     let roles = app
         .chat(id)
         .map(crate::group_admin::Roles::of)
@@ -971,12 +1005,19 @@ fn members(app: &mut App, ui: &mut egui::Ui, shown: &Shown, window: f32, photo: 
     let mut open = None;
     // `show_rows` reads the spacing from outside its closure.
     ui.spacing_mut().item_spacing.y = 0.0;
-    egui::ScrollArea::vertical()
-        .id_salt(("members", id))
-        .max_height(row_height * rows)
-        .auto_shrink([false, true])
-        .show_rows(ui, row_height, members.len(), |ui, range| {
-            for (member, name) in &members[range] {
+    if filtered_indices.is_empty() && !needle.is_empty() {
+        ui.add_space(8.0);
+        let no_match = crate::i18n::gettext(app.locale, "No members found");
+        theme::text(ui, no_match, theme::regular(13.0), palette.dim);
+        ui.add_space(8.0);
+    } else {
+        egui::ScrollArea::vertical()
+            .id_salt(("members", id))
+            .max_height(row_height * rows)
+            .auto_shrink([false, true])
+            .show_rows(ui, row_height, filtered_indices.len(), |ui, range| {
+                for &index in &filtered_indices[range] {
+                    let (member, name) = &members[index];
                 let (rect, response) = ui.allocate_exact_size(
                     egui::vec2(ui.available_width(), row_height),
                     egui::Sense::click(),
@@ -1106,6 +1147,7 @@ fn members(app: &mut App, ui: &mut egui::Ui, shown: &Shown, window: f32, photo: 
                 }
             }
         });
+    }
     app.info_members = Some((id.to_owned(), members));
     if let Some((member, change)) = chosen {
         app.actions.push(match change {
@@ -2182,7 +2224,7 @@ pub fn group_photo_id() -> egui::Id {
     egui::Id::new("group-photo")
 }
 
-/// The group's big photo, which opens a menu to change or remove it.
+/// The group's big photo, which opens a menu to change, remove or view it.
 fn group_photo(
     app: &App,
     ui: &mut egui::Ui,
@@ -2199,14 +2241,34 @@ fn group_photo(
         .on_hover_text(label.as_ref());
     ui.ctx()
         .data_mut(|data| data.insert_temp(group_photo_id(), response.rect));
+    if let Some(pic) = picture {
+        if response.double_clicked() {
+            return Some(view_photo(id, pic));
+        }
+    }
+    let view = crate::i18n::gettext(app.locale, "View photo");
     let change = crate::i18n::gettext(app.locale, "Change photo");
     let remove = crate::i18n::gettext(app.locale, "Remove photo");
-    let width = widgets::menu_width(ui, &[change.as_ref(), remove.as_ref()], true);
+    let mut labels = Vec::new();
+    if picture.is_some() {
+        labels.push(view.as_ref());
+    }
+    labels.push(change.as_ref());
+    if picture.is_some() {
+        labels.push(remove.as_ref());
+    }
+    let width = widgets::menu_width(ui, &labels, true);
     let mut chosen = None;
     egui::Popup::menu(&response)
         .width(width)
         .frame(widgets::menu_frame(&palette))
         .show(|ui| {
+            if let Some(pic) = picture {
+                if widgets::menu_item(ui, &palette, Some(Icon::Eye), &view) {
+                    chosen = Some(view_photo(id, pic));
+                    ui.close();
+                }
+            }
             if widgets::menu_item(ui, &palette, Some(Icon::Image), &change) {
                 chosen = Some(Action::PickGroupPicture(id.to_owned()));
                 ui.close();
@@ -2389,12 +2451,38 @@ mod tests {
             chat,
             message,
             card,
-        } = super::view_photo(path)
+        } = super::view_photo("1_s_whatsapp_net", path)
         else {
             panic!("the viewer");
         };
         assert_eq!(shown, path);
-        assert!(chat.is_empty() && message.is_empty() && card.is_none());
+        assert_eq!(chat, "1_s_whatsapp_net");
+        assert!(message.is_empty() && card.is_none());
+    }
+
+    #[test]
+    fn group_members_filter_by_name_or_number() {
+        let members = vec![
+            ("447867218801@s.whatsapp.net".to_string(), "Sahil Shaw".to_string()),
+            ("919876543210@s.whatsapp.net".to_string(), "Aashish".to_string()),
+            ("16508702892@s.whatsapp.net".to_string(), "Abhishek".to_string()),
+        ];
+        let filter = |query: &str| -> Vec<String> {
+            let needle = crate::util::search_key(query.trim());
+            members
+                .iter()
+                .filter(|(m, n)| {
+                    crate::util::search_key(n).contains(&needle)
+                        || crate::util::search_key(m).contains(&needle)
+                        || crate::model::phone_of(m).is_some_and(|p| p.contains(&needle))
+                })
+                .map(|(_, n)| n.clone())
+                .collect()
+        };
+        assert_eq!(filter("sahil"), vec!["Sahil Shaw"]);
+        assert_eq!(filter("7867218801"), vec!["Sahil Shaw"]);
+        assert_eq!(filter("a"), vec!["Sahil Shaw", "Aashish", "Abhishek"]);
+        assert_eq!(filter("unknown"), Vec::<String>::new());
     }
 
     use super::domain;

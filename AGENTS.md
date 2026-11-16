@@ -745,6 +745,50 @@ branch is allowed only for an explicitly requested backport to an older
 supported line. Prefer fixing forward on `main`; do not create backport or
 release branches speculatively.
 
+## Fork workflow and upstream synchronization
+
+When maintaining this fork and building custom features alongside upstream
+updates, agents must strictly follow these rules to avoid merge conflicts:
+
+- Keep `main` as a pristine mirror of upstream:
+  Never commit custom fork features directly to `main`. The local `main`
+  branch must remain an exact fast-forward mirror of `upstream/main`.
+- Isolate all custom features in dedicated feature branches:
+  Branch off `main` for each new feature (`git checkout -b feature/<name>`).
+  Never mix multiple independent features into one branch.
+- Remote configuration:
+  Ensure `origin` points to the fork (`denindavis01/zapfast`) and `upstream`
+  points to the canonical repository (`crmne/zapfast`).
+  Verify with `git remote -v`.
+- Syncing upstream updates:
+  Periodically sync upstream changes into `main`:
+  ```sh
+  git checkout main
+  git fetch upstream
+  git merge --ff-only upstream/main
+  git push origin main
+  ```
+- Updating feature branches with rebase:
+  To incorporate upstream changes into an active feature branch, rebase on
+  top of the updated `main` rather than creating merge commits:
+  ```sh
+  git checkout feature/<name>
+  git rebase main
+  ```
+  Rebasing replays custom commits sequentially on top of upstream, preserving a
+  clean linear history and isolating conflicts commit by commit.
+- Conflict prevention practices:
+  - Add new files and modules rather than modifying existing upstream core
+    files whenever possible.
+  - Wrap or hook into existing functions and types rather than rewriting them
+    in place.
+  - Keep custom commits small, focused, and well-documented.
+  - Sync with upstream regularly so code drift remains minimal.
+  - When resolving rebase conflicts, inspect with `git status`, resolve
+    conflict markers, stage with `git add`, and continue with
+    `git rebase --continue`. If conflicts become unmanageable, abort safely
+    using `git rebase --abort`.
+
 ## Releasing
 
 Never use em dashes in user-facing writing, including release titles, release

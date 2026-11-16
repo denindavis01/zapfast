@@ -347,6 +347,11 @@ impl Account {
         if let Some(known) = self.avatars.get(id) {
             return known.clone();
         }
+        let cached = self.dirs.avatar_file(id, false);
+        if cached.metadata().map(|m| m.len() > 0).unwrap_or(false) {
+            self.avatars.insert(id.to_owned(), Some(cached.clone()));
+            return Some(cached);
+        }
         if self.avatar_requests.insert(id.to_owned()) {
             self.backend.send(crate::backend::Command::FetchAvatar {
                 id: id.to_owned(),
