@@ -69,7 +69,52 @@ if ($Status -and ($Status -join "").Trim()) {
     exit 1
 }
 
-# 4. Rebase main onto upstream/main
+# 4. Check if upstream developer included custom features (e.g. group member search)
+$oldPref = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+git grep -q -i "member.*search" upstream/main -- src/ui/info.rs
+$upstreamHasFeatures = ($LASTEXITCODE -eq 0)
+$ErrorActionPreference = $oldPref
+
+if ($upstreamHasFeatures) {
+    Write-Host "==> Upstream developer has included your features in this update!" -ForegroundColor Magenta
+    Write-Host "==> Per configuration: Skipping custom feature commits and updating local build directly from clean upstream..." -ForegroundColor Cyan
+
+    git checkout main
+    git reset --hard upstream/main
+
+    # Build and install release executable from clean upstream
+    if (-not $SkipBuild) {
+        Write-Host "==> Compiling clean upstream release executable..." -ForegroundColor Cyan
+        $origPath = $env:PATH
+        $env:PATH = "C:\Strawberry\perl\bin;C:\Strawberry\c\bin;" + $env:PATH
+        
+        cargo build --release
+        $buildExit = $LASTEXITCODE
+        $env:PATH = $origPath
+
+        if ($buildExit -ne 0) {
+            Write-Error "Cargo build failed with exit code $buildExit."
+            exit $buildExit
+        }
+
+        Write-Host "==> Installing updated binary to LocalAppData..." -ForegroundColor Cyan
+        Stop-Process -Name zapfast -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 1
+
+        $installDir = "$env:LOCALAPPDATA\Programs\ZapFast"
+        if (-not (Test-Path $installDir)) {
+            New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+        }
+        Copy-Item -Force "target\release\zapfast.exe" "$installDir\zapfast.exe"
+        Write-Host "==> Local daily driver updated to official upstream build!" -ForegroundColor Green
+    }
+
+    Write-Host "==> Done: Upstream features applied to local build without custom feature fork commits." -ForegroundColor Green
+    exit 0
+}
+
+# 5. Upstream has not yet included custom features: rebase local custom commits onto upstream/main
 Write-Host "==> Rebasing local main onto upstream/main..." -ForegroundColor Cyan
 git checkout main
 $oldPref = $ErrorActionPreference
