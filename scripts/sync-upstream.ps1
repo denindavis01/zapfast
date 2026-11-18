@@ -72,9 +72,14 @@ if ($Status -and ($Status -join "").Trim()) {
 # 4. Rebase main onto upstream/main
 Write-Host "==> Rebasing local main onto upstream/main..." -ForegroundColor Cyan
 git checkout main
-$rebaseOutput = git rebase upstream/main 2>&1
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "Git rebase encountered conflicts or failed:`n$rebaseOutput`nRun 'git rebase --abort' to reset."
+$oldPref = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+git rebase upstream/main
+$rebaseExit = $LASTEXITCODE
+$ErrorActionPreference = $oldPref
+
+if ($rebaseExit -ne 0) {
+    Write-Error "Git rebase encountered conflicts or failed. Run 'git rebase --abort' to reset."
     exit 1
 }
 Write-Host "==> Rebase completed cleanly." -ForegroundColor Green
