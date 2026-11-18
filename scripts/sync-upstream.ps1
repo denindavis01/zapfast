@@ -63,8 +63,8 @@ if ($CheckOnly) {
 }
 
 # 3. Ensure working directory is clean before rebasing
-$Status = (git status --porcelain).Trim()
-if ($Status) {
+$Status = git status --porcelain
+if ($Status -and ($Status -join "").Trim()) {
     Write-Error "Working directory is not clean. Stash or commit your working changes before updating:`n$Status"
     exit 1
 }
