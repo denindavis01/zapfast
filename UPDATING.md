@@ -91,10 +91,30 @@ All shortcuts (Start Menu, Taskbar, Desktop) will now run your updated build. Yo
 
 ---
 
-## 4. Quick One-Liner Script
+## 4. Automated Upstream Sync Script
 
-To perform the complete fetch, rebase, build, and local install in one command:
+A standalone script [`scripts/sync-upstream.ps1`](scripts/sync-upstream.ps1) checks upstream and only updates when new commits are found. If there are no new commits on `upstream/main`, it exits immediately without modifying your git tree, rebuilding, or touching any processes.
 
+### Running manually
 ```powershell
-git fetch upstream && git rebase upstream/main && $env:PATH = "C:\Strawberry\perl\bin;C:\Strawberry\c\bin;" + $env:PATH && cargo build --release && Stop-Process -Name zapfast -ErrorAction SilentlyContinue && Copy-Item -Force "target\release\zapfast.exe" "$env:LOCALAPPDATA\Programs\ZapFast\zapfast.exe" && git push origin main --force-with-lease
+powershell -ExecutionPolicy Bypass -File ".\scripts\sync-upstream.ps1"
 ```
+
+Available flags:
+- `-CheckOnly`: Check for updates and list new commits without rebasing or building.
+- `-SkipBuild`: Only rebase and push to fork without rebuilding/reinstalling.
+- `-Force`: Rebase and rebuild even if no new upstream commits are detected.
+
+---
+
+## 5. Daily Scheduled Task (T3 Code)
+
+To have T3 Code automatically run this check every day:
+1. Type `/schedule` in the T3 Code chat prompt.
+2. Set the frequency to **Daily** (e.g. at 09:00 AM).
+3. Set the prompt instruction to:
+   ```text
+   Run the upstream update check for ZapFast:
+   powershell -ExecutionPolicy Bypass -File "D:\Projects\zapfast\scripts\sync-upstream.ps1"
+   If there are no new updates, finish immediately. If updates were found and applied, report the rebase and build outcome. If any merge conflicts occur, alert me with the conflicting files.
+   ```
